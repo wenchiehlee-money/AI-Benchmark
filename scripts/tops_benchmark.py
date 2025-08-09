@@ -534,7 +534,7 @@ def main():
     with open(args.output, 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n💾 Results saved to {args.output}")
+    print(f"\nResults saved to {args.output}")
 
 
 if __name__ == "__main__":
