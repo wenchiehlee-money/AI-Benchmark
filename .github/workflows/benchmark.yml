@@ -91,7 +91,7 @@ jobs:
         "
     
     - name: Upload TOPS results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: tops-results-${{ matrix.os }}
         path: tops_${{ matrix.os }}.json
