@@ -135,7 +135,7 @@ class TOPSBenchmark:
     
     def _print_system_info(self):
         """Print system information in a nice format."""
-        print("💻 SYSTEM INFORMATION")
+        print("SYSTEM INFORMATION")
         print("=" * 50)
         
         # Platform
@@ -451,7 +451,7 @@ class TOPSBenchmark:
         # Print system information first
         self._print_system_info()
         
-        print("🚀 RUNNING TOPS BENCHMARKS")
+        print("RUNNING TOPS BENCHMARKS")
         print("=" * 50)
         
         # NumPy baseline (always available)
@@ -492,15 +492,15 @@ class TOPSBenchmark:
             self.results['average_tops'] = np.mean(tops_values)
             
             print("=" * 50)
-            print("📊 PERFORMANCE SUMMARY")
+            print("PERFORMANCE SUMMARY")
             print("=" * 50)
-            print(f"🏆 PEAK PERFORMANCE: {self.results['peak_tops']:.2f} TOPS")
-            print(f"📊 AVERAGE PERFORMANCE: {self.results['average_tops']:.2f} TOPS")
-            print(f"💻 Device: {self.device}")
+            print(f"PEAK PERFORMANCE: {self.results['peak_tops']:.2f} TOPS")
+            print(f"AVERAGE PERFORMANCE: {self.results['average_tops']:.2f} TOPS")
+            print(f"Device: {self.device}")
             
             # Show best performing operation
             best_op = max(self.results['tops_measurements'].items(), key=lambda x: x[1]['tops'])
-            print(f"🥇 Best Operation: {best_op[1]['operation']} ({best_op[1]['tops']:.2f} TOPS)")
+            print(f"Best Operation: {best_op[1]['operation']} ({best_op[1]['tops']:.2f} TOPS)")
         
         return self.results
 
