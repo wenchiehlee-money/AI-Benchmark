@@ -52,7 +52,7 @@ jobs:
     
     - name: Measure TOPS
       run: |
-        python tops_benchmark.py --output tops_${{ matrix.os }}.json ${{ github.event.inputs.quick_mode == 'true' && '--quick' || '' }}
+        python scripts/tops_benchmark.py --output tops_${{ matrix.os }}.json ${{ github.event.inputs.quick_mode == 'true' && '--quick' || '' }}
     
     - name: Display Results
       run: |
