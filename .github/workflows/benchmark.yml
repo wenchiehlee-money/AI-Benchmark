@@ -1,0 +1,241 @@
+name: TOPS Measurement
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      quick_mode:
+        description: 'Run quick benchmark'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  measure-tops:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            gpu: true
+          - os: windows-latest
+            gpu: true
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch torchvision numpy psutil py-cpuinfo pynvml
+
+    - name: Install CUDA dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest' && matrix.gpu
+      run: |
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+    
+    - name: Install CUDA dependencies (Windows)
+      if: matrix.os == 'windows-latest' && matrix.gpu
+      run: |
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+    
+    - name: Measure TOPS
+      run: |
+        python tops_benchmark.py --output tops_${{ matrix.os }}.json ${{ github.event.inputs.quick_mode == 'true' && '--quick' || '' }}
+    
+    - name: Display Results
+      run: |
+        python -c "
+        import json
+        with open('tops_${{ matrix.os }}.json', 'r') as f:
+            results = json.load(f)
+        
+        print('💻 SYSTEM INFO FOR ${{ matrix.os }}:')
+        sys_info = results.get('system_info', {})
+        
+        # CPU Info
+        cpu = sys_info.get('cpu', {})
+        print(f'CPU: {cpu.get(\"brand\", \"Unknown\")}')
+        print(f'Cores: {cpu.get(\"physical_cores\", \"Unknown\")} physical, {cpu.get(\"logical_cores\", \"Unknown\")} logical')
+        
+        # Memory Info
+        memory = sys_info.get('memory', {})
+        print(f'RAM: {memory.get(\"total_gb\", \"Unknown\")} GB')
+        
+        # GPU Info
+        gpu = sys_info.get('gpu', {})
+        if gpu.get('detected_gpus'):
+            for gpu_device in gpu['detected_gpus']:
+                print(f'GPU: {gpu_device.get(\"name\", \"Unknown\")} ({gpu_device.get(\"memory_gb\", \"Unknown\")} GB)')
+        elif gpu.get('pytorch_mps', {}).get('available'):
+            print('GPU: Apple Silicon (MPS)')
+        else:
+            print('GPU: None detected')
+        
+        print()
+        print('🏆 TOPS RESULTS:')
+        print(f'Peak Performance: {results.get(\"peak_tops\", 0):.2f} TOPS')
+        print(f'Average Performance: {results.get(\"average_tops\", 0):.2f} TOPS')
+        print(f'Compute Device: {results.get(\"device\", \"Unknown\")}')
+        "
+    
+    - name: Upload TOPS results
+      uses: actions/upload-artifact@v3
+      with:
+        name: tops-results-${{ matrix.os }}
+        path: tops_${{ matrix.os }}.json
+        retention-days: 30
+
+  summary:
+    needs: measure-tops
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all results
+      uses: actions/download-artifact@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Generate TOPS Summary
+      run: |
+        python -c "
+        import json
+        import os
+        import glob
+        
+        print('🚀 TOPS PERFORMANCE SUMMARY')
+        print('=' * 50)
+        
+        results = {}
+        for artifact_dir in glob.glob('tops-results-*'):
+            os_name = artifact_dir.replace('tops-results-', '')
+            json_file = os.path.join(artifact_dir, f'tops_{os_name}.json')
+            if os.path.exists(json_file):
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+                results[os_name] = data
+        
+        # Sort by peak performance
+        sorted_results = sorted(results.items(), key=lambda x: x[1].get('peak_tops', 0), reverse=True)
+        
+        print(f'{\"\": <15} | {\"TOPS Peak\": >10} | {\"TOPS Avg\": >10} | {\"Device\": <12} | {\"CPU\": <30} | {\"GPU\": <25}')
+        print('-' * 120)
+        
+        for os_name, data in sorted_results:
+            peak = data.get('peak_tops', 0)
+            avg = data.get('average_tops', 0)
+            device = data.get('device', 'Unknown')
+            
+            # Get system info
+            sys_info = data.get('system_info', {})
+            cpu_brand = sys_info.get('cpu', {}).get('brand', 'Unknown')[:28]
+            
+            # Get GPU info
+            gpu_info = sys_info.get('gpu', {})
+            gpu_name = 'None'
+            if gpu_info.get('detected_gpus'):
+                gpu_name = gpu_info['detected_gpus'][0].get('name', 'GPU')[:23]
+            elif gpu_info.get('pytorch_mps', {}).get('available'):
+                gpu_name = 'Apple Silicon'
+            
+            print(f'{os_name: <15} | {peak: >9.2f} | {avg: >9.2f} | {device: <12} | {cpu_brand: <30} | {gpu_name: <25}')
+        
+        # Find best performer
+        if sorted_results:
+            best_os, best_data = sorted_results[0]
+            print(f'\\n🏆 Best Performer: {best_os} with {best_data.get(\"peak_tops\", 0):.2f} TOPS')
+            
+            # Show best system specs
+            best_sys = best_data.get('system_info', {})
+            best_cpu = best_sys.get('cpu', {}).get('brand', 'Unknown')
+            best_gpu = 'None'
+            if best_sys.get('gpu', {}).get('detected_gpus'):
+                best_gpu = best_sys['gpu']['detected_gpus'][0].get('name', 'GPU')
+            elif best_sys.get('gpu', {}).get('pytorch_mps', {}).get('available'):
+                best_gpu = 'Apple Silicon'
+            print(f'   CPU: {best_cpu}')
+            print(f'   GPU: {best_gpu}')
+        "
+    
+    - name: Comment PR with TOPS results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const glob = require('glob');
+          
+          let comment = '## 🚀 TOPS Performance Results\\n\\n';
+          comment += '| System | Peak TOPS | Average TOPS | Device | CPU | GPU |\\n';
+          comment += '|--------|-----------|--------------|--------|-----|-----|\\n';
+          
+          const artifactDirs = glob.sync('tops-results-*');
+          const results = [];
+          
+          for (const artifactDir of artifactDirs) {
+            const osName = artifactDir.replace('tops-results-', '');
+            const jsonFile = \`\${artifactDir}/tops_\${osName}.json\`;
+            
+            if (fs.existsSync(jsonFile)) {
+              const data = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+              
+              // Get system info
+              const sysInfo = data.system_info || {};
+              const cpuBrand = (sysInfo.cpu?.brand || 'Unknown').substring(0, 20);
+              
+              let gpuName = 'None';
+              if (sysInfo.gpu?.detected_gpus?.length > 0) {
+                gpuName = sysInfo.gpu.detected_gpus[0].name.substring(0, 15);
+              } else if (sysInfo.gpu?.pytorch_mps?.available) {
+                gpuName = 'Apple Silicon';
+              }
+              
+              results.push({
+                os: osName,
+                peak: data.peak_tops || 0,
+                avg: data.average_tops || 0,
+                device: data.device || 'Unknown',
+                cpu: cpuBrand,
+                gpu: gpuName
+              });
+            }
+          }
+          
+          // Sort by peak performance
+          results.sort((a, b) => b.peak - a.peak);
+          
+          for (const result of results) {
+            comment += \`| \${result.os} | \${result.peak.toFixed(2)} | \${result.avg.toFixed(2)} | \${result.device} | \${result.cpu} | \${result.gpu} |\\n\`;
+          }
+          
+          if (results.length > 0) {
+            const best = results[0];
+            comment += \`\\n🏆 **Best Performer**: \${best.os} with **\${best.peak.toFixed(2)} TOPS**\\n\`;
+            comment += \`- CPU: \${best.cpu}\\n\`;
+            comment += \`- GPU: \${best.gpu}\\n\`;
+            comment += \`- Device: \${best.device}\`;
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
